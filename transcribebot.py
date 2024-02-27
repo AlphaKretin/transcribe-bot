@@ -41,9 +41,12 @@ class MyClient(discord.Client):
                         elapsed_time = end_time - start_time
                         
                         # get the user's nickname
-                        server_nickname = message.guild.get_member(message.author.id).display_name
-                        reply_message = f"**{server_nickname}**: {transcribed_text}"
-
+                        if message.guild:
+                            server_nickname = message.guild.get_member(message.author.id).display_name
+                            reply_message = f"**{server_nickname}**: {transcribed_text}"
+                        else:
+                            reply_message = transcribed_text
+                    
                         # We now want to add a garbage can emoji reaction to the bots message
                         # This will allow the user to delete the message if they want to
 
