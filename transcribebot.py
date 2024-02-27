@@ -21,6 +21,10 @@ class MyClient(discord.Client):
         print(f'Logged on as {self.user}!')
 
     async def on_message(self, message):
+        # don't respond to ourselves
+        if message.author == self.user:
+            return
+
         if message.attachments:
             for attachment in message.attachments:
                 if attachment.filename == 'voice-message.ogg':
@@ -54,6 +58,7 @@ class MyClient(discord.Client):
                         new_message = await message.reply(reply_message)
                         # We need to add the garbage can emoji to the message
                         await new_message.add_reaction('🗑️')
+                        await new_message.add_reaction('⬇️')
                         
                         print(f'Transcription time: {elapsed_time:.2f}s', file=stderr)
                         
@@ -78,19 +83,59 @@ class MyClient(discord.Client):
         # Check if the message was sent by the bot
         if reaction.message.author != self.user:
             return
-        
+
+        # Check if the message is a reply
+        if reaction.message.reference:
+            # Get the message the bot is replying to
+            replied_message = await reaction.message.channel.fetch_message(reaction.message.reference.message_id)
+        else:
+            replied_message = None
+
         # Check if the reaction is the garbage can emoji
         if reaction.emoji == '🗑️':
-            # Check if the message the bot is replying to is owned by the user who reacted or an admin
-            if reaction.message.reference:
-                # Get the message the bot is replying to
-                replied_message = await reaction.message.channel.fetch_message(reaction.message.reference.message_id)
-                # Check if the replied message is owned by the user who reacted or an admin
-                if replied_message.author != user:
-                    return
+            # Check if the message is a reply
+            if not replied_message:
+                return
+            # Check if the replied message is owned by the user who reacted
+            if replied_message.author != user:
+                return
+
+            # The only way we get here is if
+            # - The reaction is the garbage can emoji
+            # - The message is a reply
+            # - The replied message is owned by the user who reacted
+
+            # This means we can delete the message
                 
             # Delete the message
             await reaction.message.delete()
+        
+        # Check if the reaction is the download emoji
+        if reaction.emoji == '⬇️':
+            # Check if the message is a reply
+            if not replied_message:
+                return
+            # Check the reply is owned by the user who reacted
+            if replied_message.author != user:
+                return
+            
+            # The only way we get here is if
+            # - The reaction is the download emoji
+            # - The message is a reply
+            # - The replied message is owned by the user who reacted
+
+            # This means we can download the file and send it back to the user
+
+            # Download the file
+            # Get the first attachment
+            attachment = replied_message.attachments[0]
+            # Save the file
+            await attachment.save(attachment.filename)
+            # Send the file
+            await reaction.message.channel.send(file=discord.File(attachment.filename))
+            # Delete the file
+            os.remove(attachment.filename)
+
                     
 intents = discord.Intents.default()
 intents.message_content = True
