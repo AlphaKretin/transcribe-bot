@@ -80,19 +80,17 @@ class MyClient(discord.Client):
             return
         
         # Check if the reaction is the garbage can emoji
-        if reaction.emoji != '🗑️':
-            return
-        
-        # Check if the message the bot is replying to is owned by the user who reacted or an admin
-        if reaction.message.reference:
-            # Get the message the bot is replying to
-            replied_message = await reaction.message.channel.fetch_message(reaction.message.reference.message_id)
-            # Check if the replied message is owned by the user who reacted or an admin
-            if replied_message.author != user and not user.guild_permissions.administrator:
-                return
-            
-        # Delete the message
-        await reaction.message.delete()
+        if reaction.emoji == '🗑️':
+            # Check if the message the bot is replying to is owned by the user who reacted or an admin
+            if reaction.message.reference:
+                # Get the message the bot is replying to
+                replied_message = await reaction.message.channel.fetch_message(reaction.message.reference.message_id)
+                # Check if the replied message is owned by the user who reacted or an admin
+                if replied_message.author != user:
+                    return
+                
+            # Delete the message
+            await reaction.message.delete()
                     
 intents = discord.Intents.default()
 intents.message_content = True
