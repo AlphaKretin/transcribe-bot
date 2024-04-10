@@ -91,16 +91,23 @@ class MyClient(discord.Client):
                     await attachment.save(attachment.filename)
                     # Read the image
                     image = mpimg.imread(attachment.filename)
+                    # if the image is not float, convert it to float
+                    if image.dtype != np.float32:
+                        image = image/255
+                    # if the image is RGBA, convert it to RGB
+                    if image.shape[-1] == 4:
+                        image = image[:,:,:3]
                     # Invert the image
-                    inverted_image = np.invert(image)
+                    inverted_image = 1 - image
                     # Save the inverted image
-                    mpimg.imsave('inverted_image.png', inverted_image)
+                    # Get message id
+                    message_id = reaction.message.id
+                    mpimg.imsave(f'inverted_image_{message_id}.png', inverted_image)
                     # Send the inverted image
-                    await reaction.message.channel.send(file=discord.File('inverted_image.png'))
+                    await reaction.message.channel.send(file=discord.File(f'inverted_image_{message_id}.png'))
                     # Delete the images
                     os.remove(attachment.filename)
-                    os.remove('inverted_image.png')
-                    return
+                    os.remove(f'inverted_image_{message_id}.png')
 
         # Check if the user is the bot
         if user == self.user:
