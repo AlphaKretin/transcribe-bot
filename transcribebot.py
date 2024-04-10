@@ -4,6 +4,8 @@ import os
 from dotenv import load_dotenv
 import traceback
 import time
+import numpy as np
+import matplotlib.image as mpimg
 from sys import stderr
 
 load_dotenv()
@@ -75,7 +77,31 @@ class MyClient(discord.Client):
          - The message was sent by the bot
          - The message the bot is replying to is owned by the user who reacted or an admin
         '''
-        
+        if 'invert_image' in str(reaction.emoji):
+            # Get the attachments
+            attachments = reaction.message.attachments
+            # Check if there are attachments
+            if not attachments:
+                return
+            # Loop through the attachments
+            for attachment in attachments:
+                # Check if the attachment is an image
+                if attachment.content_type.startswith('image'):
+                    # Download the image
+                    await attachment.save(attachment.filename)
+                    # Read the image
+                    image = mpimg.imread(attachment.filename)
+                    # Invert the image
+                    inverted_image = np.invert(image)
+                    # Save the inverted image
+                    mpimg.imsave('inverted_image.png', inverted_image)
+                    # Send the inverted image
+                    await reaction.message.channel.send(file=discord.File('inverted_image.png'))
+                    # Delete the images
+                    os.remove(attachment.filename)
+                    os.remove('inverted_image.png')
+                    return
+
         # Check if the user is the bot
         if user == self.user:
             return
