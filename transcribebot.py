@@ -87,6 +87,8 @@ class MyClient(discord.Client):
             for attachment in attachments:
                 # Check if the attachment is an image
                 if attachment.content_type.startswith('image'):
+                    # Download the image
+                    await attachment.save(attachment.filename)
                     # Read the image
                     with Image.open(attachment.filename) as image:
                         # if the image is RGBA, convert it to RGB
