@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 import traceback
 import time
 import numpy as np
-import matplotlib.image as mpimg
+from PIL import Image, ImageOps
 from sys import stderr
 
 load_dotenv()
@@ -87,27 +87,25 @@ class MyClient(discord.Client):
             for attachment in attachments:
                 # Check if the attachment is an image
                 if attachment.content_type.startswith('image'):
-                    # Download the image
-                    await attachment.save(attachment.filename)
                     # Read the image
-                    image = mpimg.imread(attachment.filename)
-                    # if the image is not float, convert it to float
-                    if image.dtype != np.float32:
-                        image = image/255
-                    # if the image is RGBA, convert it to RGB
-                    if image.shape[-1] == 4:
-                        image = image[:,:,:3]
-                    # Invert the image
-                    inverted_image = 1 - image
-                    # Save the inverted image
-                    # Get message id
-                    message_id = reaction.message.id
-                    mpimg.imsave(f'inverted_image_{message_id}.png', inverted_image)
-                    # Send the inverted image
-                    await reaction.message.channel.send(file=discord.File(f'inverted_image_{message_id}.png'))
+                    with Image.open(attachment.filename) as image:
+                        # if the image is RGBA, convert it to RGB
+                        if image.mode == "RGBA":
+                            r, g, b, a = image.split()
+                            image = Image.merge("RGB", (r, g, b))
+                        # Invert the image
+                        inverted_image = ImageOps.invert(image)
+                        # Save the inverted image
+                        # Get message id
+                        message_id = reaction.message.id
+                        inverted_image.save(f"inverted_image_{message_id}.png")
+                        # Send the inverted image
+                        await reaction.message.channel.send(
+                            file=discord.File(f"inverted_image_{message_id}.png")
+                        )
+                        os.remove(f"inverted_image_{message_id}.png")
                     # Delete the images
                     os.remove(attachment.filename)
-                    os.remove(f'inverted_image_{message_id}.png')
 
         # Check if the user is the bot
         if user == self.user:
