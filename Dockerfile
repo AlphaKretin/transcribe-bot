@@ -1,5 +1,5 @@
 # Use Ubuntu base image
-FROM ubuntu:latest
+FROM ubuntu:22.04
 
 # Update package list and install ffmpeg
 RUN apt-get update && \
