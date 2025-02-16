@@ -1,3 +1,7 @@
+# This project has been moved to my gitlab.
+
+https://git.mlfinley.com/molly/transcribe-bot
+
 # transcribe-bot
 A bot that transcribes audio messages sent on Discord using Whisper
 
