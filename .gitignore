@@ -4,6 +4,12 @@ bot_params.env
 # Binaries
 *.exe
 
+# Downloaded files
+*.jpg
+*.png
+*.ogg
+*.mp3
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

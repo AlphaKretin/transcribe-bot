@@ -26,6 +26,7 @@ openai-whisper==20231117
 pillow==10.4.0
 pydub==0.25.1
 python-dotenv==1.0.1
+pyvips==2.2.3
 regex==2024.7.24
 requests==2.32.3
 sympy==1.13.1
@@ -33,6 +34,7 @@ tbb==2021.13.1
 tiktoken==0.7.0
 torch==2.3.0
 tqdm==4.66.5
+transformers==4.51.3
 typing_extensions==4.12.2
 urllib3==2.2.2
 yarl==1.9.4

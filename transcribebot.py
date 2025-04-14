@@ -1,29 +1,39 @@
-import whisper
-import discord
 import os
-from dotenv import load_dotenv
-import traceback
 import time
-from PIL import Image, ImageOps
-from sys import stderr
+import traceback
 from io import BytesIO
+from sys import stderr
+
+import discord
 import requests
+import whisper
+from dotenv import load_dotenv
+from PIL import Image, ImageOps
 from pydub import AudioSegment
+from transformers import AutoModelForCausalLM
 
 # This assumes a .env file with this name has been placed in the same file location that the program is running from.
 load_dotenv("bot_params.env")
 
 model_size = os.getenv("MODEL_SIZE") or "base"
 
-print('Using Model Size:',model_size,file=stderr)
-
 model = whisper.load_model(model_size)
 
-username = 'TranscribeBot'
+print("Loaded Whisper using Model Size:", model_size, file=stderr)
+
+moondream_model = AutoModelForCausalLM.from_pretrained(
+    "vikhyatk/moondream2",
+    trust_remote_code=True,
+    # Comment/uncomment to control use of GPU for Moondream
+    device_map={"": "cuda"},
+)
+
+print("Loaded Moondream")
+
 
 class MyClient(discord.Client):
     async def on_ready(self):
-        print(f'Logged on as {self.user}!')
+        print(f"Logged on as {self.user}!")
 
     async def on_message(self, message):
         # don't respond to ourselves
@@ -32,53 +42,90 @@ class MyClient(discord.Client):
 
         if message.attachments:
             for attachment in message.attachments:
-                if attachment.filename == 'voice-message.ogg':
+                if attachment.filename == "voice-message.ogg":
                     file_name = attachment.filename
                     # add message id to file name
-                    file_name = f'{message.id}-{file_name}'
+                    file_name = f"{message.id}-{file_name}"
                     try:
                         # save the file
                         await attachment.save(file_name)
-                        print(f'Saved attachment: {file_name}')
-                        
+                        print(f"Saved attachment: {file_name}")
+
                         start_time = time.time()  # Start measuring time
-                        
+
                         text = whisper.transcribe(model, file_name)
-                        transcribed_text = text['text'].strip()
-                        
+                        transcribed_text = text["text"].strip()
+
                         end_time = time.time()  # Stop measuring time
                         elapsed_time = end_time - start_time
-                        
+
                         # get the user's nickname
                         if message.guild:
-                            server_nickname = message.guild.get_member(message.author.id).display_name
+                            server_nickname = message.guild.get_member(
+                                message.author.id
+                            ).display_name
                             reply_message = f"**{server_nickname}**: {transcribed_text}"
                         else:
                             reply_message = transcribed_text
-                    
+
                         # We now want to add a garbage can emoji reaction to the bots message
                         # This will allow the user to delete the message if they want to
 
                         # We need to get the message that the bot just sent
                         new_message = await message.reply(reply_message)
                         # We need to add the garbage can emoji to the message
-                        await new_message.add_reaction('🗑️')
-                        await new_message.add_reaction('⬇️')
-                        
-                        print(f'Transcription time: {elapsed_time:.2f}s', file=stderr)
-                        
+                        await new_message.add_reaction("🗑️")
+                        await new_message.add_reaction("⬇️")
+
+                        print(f"Transcription time: {elapsed_time:.2f}s", file=stderr)
+
                     except Exception as e:
                         traceback.print_exc()
                     finally:
                         # delete the file
                         os.remove(file_name)
-                    
+
+
 intents = discord.Intents.default()
 intents.message_content = True
 # guilds is required to get the nickname of the user
 intents.members = True
 
 client = MyClient(intents=intents)
+
+TRIGGER_EMOJI = ["invert_image", "description_please"]
+
+
+async def invert_image(image, message):
+    # if the image is RGBA, convert it to RGB
+    if image.mode == "RGBA":
+        r, g, b, a = image.split()
+        image = Image.merge("RGB", (r, g, b))
+    # Invert the image
+    inverted_image = ImageOps.invert(image)
+    # Save the inverted image
+    # Get message id
+    message_id = message.id
+    inverted_image.save(f"inverted_image_{message_id}.png")
+    # Send the inverted image
+    await message.channel.send(file=discord.File(f"inverted_image_{message_id}.png"))
+    os.remove(f"inverted_image_{message_id}.png")
+
+
+async def caption_image(image, message):
+    start_time = time.time()  # Start measuring time
+    caption = moondream_model.caption(image, length="normal")
+    end_time = time.time()  # Stop measuring time
+    elapsed_time = end_time - start_time
+    reply_message = caption["caption"]
+    # We now want to add a garbage can emoji reaction to the bots message
+    # This will allow the user to delete the message if they want to
+
+    # We need to get the message that the bot just sent
+    new_message = await message.reply(reply_message)
+    # We need to add the garbage can emoji to the message
+    await new_message.add_reaction("🗑️")
+    print(f"Captioning time: {elapsed_time:.2f}s", file=stderr)
 
 
 # This function is called when a reaction is added to a message.
@@ -87,18 +134,20 @@ client = MyClient(intents=intents)
 # any reactions added to messages that were posted before the latest restart.
 @client.event
 async def on_raw_reaction_add(payload):
-    message = await client.get_channel(payload.channel_id).fetch_message(payload.message_id)
+    message = await client.get_channel(payload.channel_id).fetch_message(
+        payload.message_id
+    )
     user = payload.member
-    '''
+    emoji_name = str(payload.emoji)
+    """
     We want to delete the message if
      - The user reacts with the garbage can emoji
      - The message was sent by the bot
      - The message the bot is replying to is owned by the user who reacted or an admin
-    '''
-    if 'invert_image' in str(payload.emoji):
+    """
+    if any(name in emoji_name for name in TRIGGER_EMOJI):
         # Get the attachments and embeds
         attachments = message.attachments
-        embeds = message.embeds
 
         # Added feature by Kvysteran: Loop through the embeds and try to download the images.
         # Before this change, posts would sometimes appear to contain an image but were unable to be
@@ -109,51 +158,35 @@ async def on_raw_reaction_add(payload):
                 if link is None:
                     link = embed.thumbnail.proxy_url
                 data = requests.get(link).content
-                with Image.open(BytesIO(data)) as image: 
-                    # if the image is RGBA, convert it to RGB
-                    if image.mode == "RGBA":
-                        r, g, b, a = image.split()
-                        image = Image.merge("RGB", (r, g, b))
-                    # Invert the image
-                    inverted_image = ImageOps.invert(image)
-                    # Save the inverted image
-                    # Get message id
-                    message_id = message.id
-                    inverted_image.save(f"inverted_image_{message_id}.png")
-                    # Send the inverted image
-                    await message.channel.send(file=discord.File(f"inverted_image_{message_id}.png"))
-                    os.remove(f"inverted_image_{message_id}.png")
+                with Image.open(BytesIO(data)) as image:
+                    if "invert_image" in emoji_name:
+                        await invert_image(image, message)
+                    if "description_please" in emoji_name:
+                        await caption_image(image, message)
             except:
-                await message.channel.send("Uh-oh, it looks like this message has an embedded link but no actual attached images.\nI tried to follow the link and download the image, but something went wrong.  :(")
+                await message.channel.send(
+                    "Uh-oh, it looks like this message has an embedded link but no actual attached images.\nI tried to follow the link and download the image, but something went wrong.  :("
+                )
 
         # Loop through the attachments
         for attachment in attachments:
             # Check if the attachment is an image
-            if attachment.content_type.startswith('image'):
+            if attachment.content_type.startswith("image"):
                 # Download the image
                 await attachment.save(attachment.filename)
                 # Read the image
                 with Image.open(attachment.filename) as image:
-                    # if the image is RGBA, convert it to RGB
-                    if image.mode == "RGBA":
-                        r, g, b, a = image.split()
-                        image = Image.merge("RGB", (r, g, b))
-                    # Invert the image
-                    inverted_image = ImageOps.invert(image)
-                    # Save the inverted image
-                    # Get message id
-                    message_id = message.id
-                    inverted_image.save(f"inverted_image_{message_id}.png")
-                    # Send the inverted image
-                    await message.channel.send(file=discord.File(f"inverted_image_{message_id}.png"))
-                    os.remove(f"inverted_image_{message_id}.png")
+                    if "invert_image" in emoji_name:
+                        await invert_image(image, message)
+                    if "description_please" in emoji_name:
+                        await caption_image(image, message)
                 # Delete the images
                 os.remove(attachment.filename)
 
     # Check if the user is the bot
     if user == client.user:
         return
-    
+
     # Check if the message was sent by the bot
     if message.author != client.user:
         return
@@ -161,12 +194,14 @@ async def on_raw_reaction_add(payload):
     # Check if the message is a reply
     if message.reference:
         # Get the message the bot is replying to
-        replied_message = await message.channel.fetch_message(message.reference.message_id)
+        replied_message = await message.channel.fetch_message(
+            message.reference.message_id
+        )
     else:
         replied_message = None
 
     # Check if the reaction is the garbage can emoji
-    if str(payload.emoji) == '🗑️':
+    if str(payload.emoji) == "🗑️":
         # Check if the message is a reply
         if not replied_message:
             return
@@ -180,19 +215,19 @@ async def on_raw_reaction_add(payload):
         # - The replied message is owned by the user who reacted
 
         # This means we can delete the message
-            
+
         # Delete the message
         await message.delete()
-    
+
     # Check if the reaction is the download emoji
-    if str(payload.emoji) == '⬇️':
+    if str(payload.emoji) == "⬇️":
         # Check if the message is a reply
         if not replied_message:
             return
         # Check the reply is owned by the user who reacted
         if replied_message.author != user:
             return
-        
+
         # The only way we get here is if
         # - The reaction is the download emoji
         # - The message is a reply
@@ -219,4 +254,4 @@ async def on_raw_reaction_add(payload):
         os.remove(filenameMP3)
 
 
-client.run(os.getenv('BOT_TOKEN'))
+client.run(os.getenv("BOT_TOKEN"))

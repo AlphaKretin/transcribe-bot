@@ -18,9 +18,9 @@ Updates to image inversion by Kvysteran.
 - Moondream
 
 ## Setup
-ffmpeg.exe and ffprobe.exe must be in the same directory as the script.
+ffmpeg.exe and ffprobe.exe must be in the same directory as the script. You will also need to instal [LibVips](https://www.libvips.org/).
 
-To run the models on the GPU, additionally install a compatible version of PyTorch.
+To run the models on the GPU, additionally install a compatible version of PyTorch, and the `accelerate` library.
 
 1. Clone the repository
 2. Create a virtual environment
