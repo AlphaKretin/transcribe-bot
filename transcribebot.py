@@ -4,11 +4,14 @@ import os
 from dotenv import load_dotenv
 import traceback
 import time
-import numpy as np
 from PIL import Image, ImageOps
 from sys import stderr
+from io import BytesIO
+import requests
+from pydub import AudioSegment
 
-load_dotenv()
+# This assumes a .env file with this name has been placed in the same file location that the program is running from.
+load_dotenv("bot_params.env")
 
 model_size = os.getenv("MODEL_SIZE") or "base"
 
@@ -69,106 +72,6 @@ class MyClient(discord.Client):
                     finally:
                         # delete the file
                         os.remove(file_name)
-    # This function is called when a reaction is added to a message
-    async def on_reaction_add(self, reaction, user):
-        '''
-        We want to delete the message if
-         - The user reacts with the garbage can emoji
-         - The message was sent by the bot
-         - The message the bot is replying to is owned by the user who reacted or an admin
-        '''
-        if 'invert_image' in str(reaction.emoji):
-            # Get the attachments
-            attachments = reaction.message.attachments
-            # Check if there are attachments
-            if not attachments:
-                return
-            # Loop through the attachments
-            for attachment in attachments:
-                # Check if the attachment is an image
-                if attachment.content_type.startswith('image'):
-                    # Download the image
-                    await attachment.save(attachment.filename)
-                    # Read the image
-                    with Image.open(attachment.filename) as image:
-                        # if the image is RGBA, convert it to RGB
-                        if image.mode == "RGBA":
-                            r, g, b, a = image.split()
-                            image = Image.merge("RGB", (r, g, b))
-                        # Invert the image
-                        inverted_image = ImageOps.invert(image)
-                        # Save the inverted image
-                        # Get message id
-                        message_id = reaction.message.id
-                        inverted_image.save(f"inverted_image_{message_id}.png")
-                        # Send the inverted image
-                        await reaction.message.channel.send(
-                            file=discord.File(f"inverted_image_{message_id}.png")
-                        )
-                        os.remove(f"inverted_image_{message_id}.png")
-                    # Delete the images
-                    os.remove(attachment.filename)
-
-        # Check if the user is the bot
-        if user == self.user:
-            return
-        
-        # Check if the message was sent by the bot
-        if reaction.message.author != self.user:
-            return
-
-        # Check if the message is a reply
-        if reaction.message.reference:
-            # Get the message the bot is replying to
-            replied_message = await reaction.message.channel.fetch_message(reaction.message.reference.message_id)
-        else:
-            replied_message = None
-
-        # Check if the reaction is the garbage can emoji
-        if reaction.emoji == '🗑️':
-            # Check if the message is a reply
-            if not replied_message:
-                return
-            # Check if the replied message is owned by the user who reacted
-            if replied_message.author != user:
-                return
-
-            # The only way we get here is if
-            # - The reaction is the garbage can emoji
-            # - The message is a reply
-            # - The replied message is owned by the user who reacted
-
-            # This means we can delete the message
-                
-            # Delete the message
-            await reaction.message.delete()
-        
-        # Check if the reaction is the download emoji
-        if reaction.emoji == '⬇️':
-            # Check if the message is a reply
-            if not replied_message:
-                return
-            # Check the reply is owned by the user who reacted
-            if replied_message.author != user:
-                return
-            
-            # The only way we get here is if
-            # - The reaction is the download emoji
-            # - The message is a reply
-            # - The replied message is owned by the user who reacted
-
-            # This means we can download the file and send it back to the user
-
-            # Download the file
-            # Get the first attachment
-            attachment = replied_message.attachments[0]
-            # Save the file
-            await attachment.save(attachment.filename)
-            # Send the file
-            await reaction.message.channel.send(file=discord.File(attachment.filename))
-            # Delete the file
-            os.remove(attachment.filename)
-
                     
 intents = discord.Intents.default()
 intents.message_content = True
@@ -176,4 +79,144 @@ intents.message_content = True
 intents.members = True
 
 client = MyClient(intents=intents)
+
+
+# This function is called when a reaction is added to a message.
+# Added feature by Kvysteran: method was changed to overload on_raw_reaction_add instead of on_reacton_add.
+# Before this change, every time the bot started or restarted, it would lose the ability to respond to
+# any reactions added to messages that were posted before the latest restart.
+@client.event
+async def on_raw_reaction_add(payload):
+    message = await client.get_channel(payload.channel_id).fetch_message(payload.message_id)
+    user = payload.member
+    '''
+    We want to delete the message if
+     - The user reacts with the garbage can emoji
+     - The message was sent by the bot
+     - The message the bot is replying to is owned by the user who reacted or an admin
+    '''
+    if 'invert_image' in str(payload.emoji):
+        # Get the attachments and embeds
+        attachments = message.attachments
+        embeds = message.embeds
+
+        # Added feature by Kvysteran: Loop through the embeds and try to download the images.
+        # Before this change, posts would sometimes appear to contain an image but were unable to be
+        # processed because the image was a displayed embed from a pasted link and not an attachment.
+        for embed in message.embeds:
+            try:
+                link = embed.image.proxy_url
+                if link is None:
+                    link = embed.thumbnail.proxy_url
+                data = requests.get(link).content
+                with Image.open(BytesIO(data)) as image: 
+                    # if the image is RGBA, convert it to RGB
+                    if image.mode == "RGBA":
+                        r, g, b, a = image.split()
+                        image = Image.merge("RGB", (r, g, b))
+                    # Invert the image
+                    inverted_image = ImageOps.invert(image)
+                    # Save the inverted image
+                    # Get message id
+                    message_id = message.id
+                    inverted_image.save(f"inverted_image_{message_id}.png")
+                    # Send the inverted image
+                    await message.channel.send(file=discord.File(f"inverted_image_{message_id}.png"))
+                    os.remove(f"inverted_image_{message_id}.png")
+            except:
+                await message.channel.send("Uh-oh, it looks like this message has an embedded link but no actual attached images.\nI tried to follow the link and download the image, but something went wrong.  :(")
+
+        # Loop through the attachments
+        for attachment in attachments:
+            # Check if the attachment is an image
+            if attachment.content_type.startswith('image'):
+                # Download the image
+                await attachment.save(attachment.filename)
+                # Read the image
+                with Image.open(attachment.filename) as image:
+                    # if the image is RGBA, convert it to RGB
+                    if image.mode == "RGBA":
+                        r, g, b, a = image.split()
+                        image = Image.merge("RGB", (r, g, b))
+                    # Invert the image
+                    inverted_image = ImageOps.invert(image)
+                    # Save the inverted image
+                    # Get message id
+                    message_id = message.id
+                    inverted_image.save(f"inverted_image_{message_id}.png")
+                    # Send the inverted image
+                    await message.channel.send(file=discord.File(f"inverted_image_{message_id}.png"))
+                    os.remove(f"inverted_image_{message_id}.png")
+                # Delete the images
+                os.remove(attachment.filename)
+
+    # Check if the user is the bot
+    if user == client.user:
+        return
+    
+    # Check if the message was sent by the bot
+    if message.author != client.user:
+        return
+
+    # Check if the message is a reply
+    if message.reference:
+        # Get the message the bot is replying to
+        replied_message = await message.channel.fetch_message(message.reference.message_id)
+    else:
+        replied_message = None
+
+    # Check if the reaction is the garbage can emoji
+    if str(payload.emoji) == '🗑️':
+        # Check if the message is a reply
+        if not replied_message:
+            return
+        # Check if the replied message is owned by the user who reacted
+        if replied_message.author != user:
+            return
+
+        # The only way we get here is if
+        # - The reaction is the garbage can emoji
+        # - The message is a reply
+        # - The replied message is owned by the user who reacted
+
+        # This means we can delete the message
+            
+        # Delete the message
+        await message.delete()
+    
+    # Check if the reaction is the download emoji
+    if str(payload.emoji) == '⬇️':
+        # Check if the message is a reply
+        if not replied_message:
+            return
+        # Check the reply is owned by the user who reacted
+        if replied_message.author != user:
+            return
+        
+        # The only way we get here is if
+        # - The reaction is the download emoji
+        # - The message is a reply
+        # - The replied message is owned by the user who reacted
+
+        # This means we can download the file and send it back to the user
+
+        # Download the file
+        # Get the first attachment
+        attachment = replied_message.attachments[0]
+        # Save the file
+        await attachment.save(attachment.filename)
+        audioMP3 = AudioSegment.from_ogg(attachment.filename)
+        # Added feature by Kvysteran: convert the .ogg file to .mp3 before making the file available for download.
+        # This makes playback of saved voice recordings easier for people that use Apple devices.
+        # REQUIRED: the ffprobe executable must be placed in the same file location that this python program is running from.
+        # If you have ffmpeg.exe but not ffprobe.exe, this conversion will fail and cause a crash.  :(
+        filenameMP3 = attachment.filename.replace(".ogg", ".mp3")
+        audioMP3.export(filenameMP3, format="mp3")
+        # Send the file
+        await message.channel.send(file=discord.File(filenameMP3))
+        # Delete the file
+        os.remove(attachment.filename)
+        os.remove(filenameMP3)
+
+
 client.run(os.getenv('BOT_TOKEN'))
