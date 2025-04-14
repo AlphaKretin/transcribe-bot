@@ -10,6 +10,9 @@ bot_params.env
 *.ogg
 *.mp3
 
+# Virtual Env
+necho/
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
