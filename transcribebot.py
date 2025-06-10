@@ -93,7 +93,7 @@ intents.members = True
 
 client = MyClient(intents=intents)
 
-TRIGGER_EMOJI = ["invert_image", "description_please"]
+TRIGGER_EMOJI = ["invert_image", "image_desc"]
 
 
 async def invert_image(image, message):
@@ -161,7 +161,7 @@ async def on_raw_reaction_add(payload):
                 with Image.open(BytesIO(data)) as image:
                     if "invert_image" in emoji_name:
                         await invert_image(image, message)
-                    if "description_please" in emoji_name:
+                    if "image_desc" in emoji_name:
                         await caption_image(image, message)
             except:
                 await message.channel.send(
@@ -178,7 +178,7 @@ async def on_raw_reaction_add(payload):
                 with Image.open(attachment.filename) as image:
                     if "invert_image" in emoji_name:
                         await invert_image(image, message)
-                    if "description_please" in emoji_name:
+                    if "image_desc" in emoji_name:
                         await caption_image(image, message)
                 # Delete the images
                 os.remove(attachment.filename)
