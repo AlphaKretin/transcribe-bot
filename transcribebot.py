@@ -23,6 +23,7 @@ print("Loaded Whisper using Model Size:", model_size, file=stderr)
 
 moondream_model = AutoModelForCausalLM.from_pretrained(
     "vikhyatk/moondream2",
+    revision="2025-06-21",
     trust_remote_code=True,
     # Comment/uncomment to control use of GPU for Moondream
     device_map={"": "cuda"},
