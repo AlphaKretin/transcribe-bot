@@ -52,8 +52,8 @@ class MyClient(discord.Client):
         print(f"Logged on as {self.user}!")
 
     async def on_message(self, message):
-        # don't respond to ourselves
-        if message.author == self.user:
+        # don't respond to ourselves, other bots, or webhooks
+        if message.author == self.user or message.author.bot or message.webhook_id:
             return
 
         if message.attachments:
@@ -82,13 +82,23 @@ class MyClient(discord.Client):
                             ).display_name
                             reply_message = f"**{server_nickname}**: {transcribed_text}"
                         else:
+                            server_nickname = None
                             reply_message = transcribed_text
 
                         # We now want to add a garbage can emoji reaction to the bots message
                         # This will allow the user to delete the message if they want to
 
                         # We need to get the message that the bot just sent
-                        new_message = await message.reply(reply_message)
+                        try:
+                            new_message = await message.reply(reply_message)
+                        except discord.HTTPException:
+                            # Original message was deleted, send without reply
+                            # Include user mention for deletion authority
+                            if server_nickname:
+                                fallback_message = f"**{server_nickname}** ({message.author.mention}): {transcribed_text}"
+                            else:
+                                fallback_message = f"{message.author.mention}: {transcribed_text}"
+                            new_message = await message.channel.send(fallback_message)
                         # We need to add the garbage can emoji to the message
                         await new_message.add_reaction("🗑️")
                         await new_message.add_reaction("⬇️")
@@ -226,22 +236,17 @@ async def on_raw_reaction_add(payload):
 
     # Check if the reaction is the garbage can emoji
     if str(payload.emoji) == "🗑️":
-        # Check if the message is a reply
-        if not replied_message:
-            return
-        # Check if the replied message is owned by the user who reacted
-        if replied_message.author != user:
-            return
+        # Check if user has permission to delete
+        has_permission = False
+        if replied_message and replied_message.author == user:
+            # User owns the message that was replied to
+            has_permission = True
+        elif user in message.mentions:
+            # User is mentioned in the message (fallback for when original was deleted)
+            has_permission = True
 
-        # The only way we get here is if
-        # - The reaction is the garbage can emoji
-        # - The message is a reply
-        # - The replied message is owned by the user who reacted
-
-        # This means we can delete the message
-
-        # Delete the message
-        await message.delete()
+        if has_permission:
+            await message.delete()
 
     # Check if the reaction is the download emoji
     if str(payload.emoji) == "⬇️":
