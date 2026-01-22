@@ -1,3 +1,4 @@
+import argparse
 import os
 import time
 import traceback
@@ -10,7 +11,16 @@ import whisper
 from dotenv import load_dotenv
 from PIL import Image, ImageOps
 from pydub import AudioSegment
-from transformers import AutoModelForCausalLM
+
+# Parse command-line arguments
+MOONDREAM_FLAG = "--moondream"
+parser = argparse.ArgumentParser(description="Discord transcription bot")
+parser.add_argument(
+    MOONDREAM_FLAG,
+    action="store_true",
+    help="Enable the Moondream model for image descriptions",
+)
+args = parser.parse_args()
 
 # This assumes a .env file with this name has been placed in the same file location that the program is running from.
 load_dotenv("bot_params.env")
@@ -21,15 +31,20 @@ model = whisper.load_model(model_size)
 
 print("Loaded Whisper using Model Size:", model_size, file=stderr)
 
-moondream_model = AutoModelForCausalLM.from_pretrained(
-    "vikhyatk/moondream2",
-    revision="2025-06-21",
-    trust_remote_code=True,
-    # Comment/uncomment to control use of GPU for Moondream
-    device_map={"": "cuda"},
-)
+moondream_model = None
+if args.moondream:
+    from transformers import AutoModelForCausalLM
 
-print("Loaded Moondream")
+    moondream_model = AutoModelForCausalLM.from_pretrained(
+        "vikhyatk/moondream2",
+        revision="2025-06-21",
+        trust_remote_code=True,
+        # Comment/uncomment to control use of GPU for Moondream
+        device_map={"": "cuda"},
+    )
+    print("Loaded Moondream", file=stderr)
+else:
+    print(f"Moondream model disabled (use {MOONDREAM_FLAG} to enable)", file=stderr)
 
 
 class MyClient(discord.Client):
@@ -114,6 +129,14 @@ async def invert_image(image, message):
 
 
 async def caption_image(image, message):
+    if moondream_model is None:
+        await message.channel.send(
+            "Sorry, image descriptions are not available right now. "
+            "The Moondream model was not loaded when the bot started. "
+            f"Please ask the bot administrator to restart with the `{MOONDREAM_FLAG}` flag to enable this feature."
+        )
+        return
+
     start_time = time.time()  # Start measuring time
     caption = moondream_model.caption(image, length="normal")
     end_time = time.time()  # Stop measuring time
