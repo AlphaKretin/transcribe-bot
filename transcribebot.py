@@ -47,6 +47,28 @@ else:
     print(f"Moondream model disabled (use {MOONDREAM_FLAG} to enable)", file=stderr)
 
 
+DISCORD_CHAR_LIMIT = 2000
+
+
+def chunk_text(text, first_limit, rest_limit):
+    """Split text at word boundaries. First chunk uses first_limit, the rest use rest_limit."""
+    def split_once(t, limit):
+        if len(t) <= limit:
+            return t, ""
+        split_at = t.rfind(' ', 0, limit)
+        if split_at <= 0:
+            split_at = limit
+        return t[:split_at], t[split_at:].lstrip()
+
+    chunks = []
+    chunk, remaining = split_once(text, first_limit)
+    chunks.append(chunk)
+    while remaining:
+        chunk, remaining = split_once(remaining, rest_limit)
+        chunks.append(chunk)
+    return chunks
+
+
 class MyClient(discord.Client):
     async def on_ready(self):
         print(f"Logged on as {self.user}!")
@@ -80,28 +102,37 @@ class MyClient(discord.Client):
                             server_nickname = message.guild.get_member(
                                 message.author.id
                             ).display_name
-                            reply_message = f"**{server_nickname}**: {transcribed_text}"
+                            prefix = f"**{server_nickname}**: "
+                            fallback_prefix = f"**{server_nickname}** ({message.author.mention}): "
                         else:
                             server_nickname = None
-                            reply_message = transcribed_text
+                            prefix = ""
+                            fallback_prefix = f"{message.author.mention}: "
 
-                        # We now want to add a garbage can emoji reaction to the bots message
-                        # This will allow the user to delete the message if they want to
+                        text_chunks = chunk_text(
+                            transcribed_text,
+                            first_limit=DISCORD_CHAR_LIMIT - len(prefix),
+                            rest_limit=DISCORD_CHAR_LIMIT,
+                        )
 
-                        # We need to get the message that the bot just sent
                         try:
-                            new_message = await message.reply(reply_message)
+                            new_message = await message.reply(prefix + text_chunks[0])
                         except discord.HTTPException:
                             # Original message was deleted, send without reply
-                            # Include user mention for deletion authority
-                            if server_nickname:
-                                fallback_message = f"**{server_nickname}** ({message.author.mention}): {transcribed_text}"
-                            else:
-                                fallback_message = f"{message.author.mention}: {transcribed_text}"
-                            new_message = await message.channel.send(fallback_message)
-                        # We need to add the garbage can emoji to the message
+                            new_message = await message.channel.send(
+                                fallback_prefix + text_chunks[0],
+                            )
                         await new_message.add_reaction("🗑️")
                         await new_message.add_reaction("⬇️")
+
+                        # Send continuation chunks as replies to the first message;
+                        # 🗑️ on the first message will find and delete these via history scan
+                        for chunk in text_chunks[1:]:
+                            await message.channel.send(
+                                chunk,
+                                reference=new_message,
+                                allowed_mentions=discord.AllowedMentions(replied_user=False),
+                            )
 
                         print(f"Transcription time: {elapsed_time:.2f}s", file=stderr)
 
@@ -250,6 +281,11 @@ async def on_raw_reaction_add(payload):
             has_permission = True
 
         if has_permission:
+            async for hist_msg in message.channel.history(limit=50, after=message):
+                if (hist_msg.author == client.user
+                        and hist_msg.reference
+                        and hist_msg.reference.message_id == message.id):
+                    await hist_msg.delete()
             await message.delete()
 
     # Check if the reaction is the download emoji
