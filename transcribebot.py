@@ -122,23 +122,30 @@ client = MyClient(intents=intents)
 TRIGGER_EMOJI = ["invert_image", "image_desc"]
 
 
-async def invert_image(image, message):
-    # if the image is RGBA, convert it to RGB
+async def invert_image(image, message, reactor):
     if image.mode == "RGBA":
         r, g, b, a = image.split()
         image = Image.merge("RGB", (r, g, b))
-    # Invert the image
     inverted_image = ImageOps.invert(image)
-    # Save the inverted image
-    # Get message id
     message_id = message.id
     inverted_image.save(f"inverted_image_{message_id}.png")
-    # Send the inverted image
-    await message.channel.send(file=discord.File(f"inverted_image_{message_id}.png"))
+    try:
+        new_message = await message.reply(
+            reactor.mention,
+            file=discord.File(f"inverted_image_{message_id}.png"),
+            allowed_mentions=discord.AllowedMentions(users=False),
+        )
+    except discord.HTTPException:
+        new_message = await message.channel.send(
+            f"{message.author.mention} {reactor.mention}",
+            file=discord.File(f"inverted_image_{message_id}.png"),
+            allowed_mentions=discord.AllowedMentions(users=False),
+        )
+    await new_message.add_reaction("🗑️")
     os.remove(f"inverted_image_{message_id}.png")
 
 
-async def caption_image(image, message):
+async def caption_image(image, message, reactor):
     if moondream_model is None:
         await message.channel.send(
             "Sorry, image descriptions are not available right now. "
@@ -151,13 +158,10 @@ async def caption_image(image, message):
     caption = moondream_model.caption(image, length="normal")
     end_time = time.time()  # Stop measuring time
     elapsed_time = end_time - start_time
-    reply_message = caption["caption"]
-    # We now want to add a garbage can emoji reaction to the bots message
-    # This will allow the user to delete the message if they want to
-
-    # We need to get the message that the bot just sent
-    new_message = await message.reply(reply_message)
-    # We need to add the garbage can emoji to the message
+    new_message = await message.reply(
+        f"{reactor.mention} {caption['caption']}",
+        allowed_mentions=discord.AllowedMentions(users=False),
+    )
     await new_message.add_reaction("🗑️")
     print(f"Captioning time: {elapsed_time:.2f}s", file=stderr)
 
@@ -194,9 +198,9 @@ async def on_raw_reaction_add(payload):
                 data = requests.get(link).content
                 with Image.open(BytesIO(data)) as image:
                     if "invert_image" in emoji_name:
-                        await invert_image(image, message)
+                        await invert_image(image, message, user)
                     if "image_desc" in emoji_name:
-                        await caption_image(image, message)
+                        await caption_image(image, message, user)
             except:
                 await message.channel.send(
                     "Uh-oh, it looks like this message has an embedded link but no actual attached images.\nI tried to follow the link and download the image, but something went wrong.  :("
@@ -211,9 +215,9 @@ async def on_raw_reaction_add(payload):
                 # Read the image
                 with Image.open(attachment.filename) as image:
                     if "invert_image" in emoji_name:
-                        await invert_image(image, message)
+                        await invert_image(image, message, user)
                     if "image_desc" in emoji_name:
-                        await caption_image(image, message)
+                        await caption_image(image, message, user)
                 # Delete the images
                 os.remove(attachment.filename)
 
