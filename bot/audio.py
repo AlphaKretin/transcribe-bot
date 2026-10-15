@@ -3,6 +3,7 @@ import os
 import av
 import discord
 
+from bot.config import PROJECT_DIR
 from bot.replies import report_error
 
 

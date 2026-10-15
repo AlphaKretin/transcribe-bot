@@ -2,10 +2,12 @@ import logging
 import os
 from logging.handlers import TimedRotatingFileHandler
 
+from bot.config import PROJECT_DIR
+
 
 def setup_logging():
     """Log to the console and to a file in LOG_DIR that rolls over at midnight."""
-    log_dir = os.getenv("LOG_DIR") or "logs"
+    log_dir = os.path.join(PROJECT_DIR, os.getenv("LOG_DIR") or "logs")
     retention_days = int(os.getenv("LOG_RETENTION_DAYS") or 30)
     os.makedirs(log_dir, exist_ok=True)
 

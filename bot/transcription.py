@@ -5,7 +5,7 @@ import time
 import discord
 
 from bot import models
-from bot.config import DISCORD_CHAR_LIMIT
+from bot.config import DISCORD_CHAR_LIMIT, PROJECT_DIR
 from bot.replies import chunk_text, report_error
 
 log = logging.getLogger(__name__)
@@ -16,7 +16,7 @@ async def transcribe_voice_messages(message):
         if attachment.filename != "voice-message.ogg":
             continue
         # add message id to file name
-        file_name = f"{message.id}-{attachment.filename}"
+        file_name = os.path.join(PROJECT_DIR, f"{message.id}-{attachment.filename}")
         try:
             # save the file
             await attachment.save(file_name)
