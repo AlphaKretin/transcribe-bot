@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import time
 from io import BytesIO
 
@@ -14,7 +15,16 @@ from bot.replies import reply_deletable, report_error
 log = logging.getLogger(__name__)
 
 
-async def invert_image(image, message, reactor):
+SPOILER_SPAN = re.compile(r"\|\|(.+?)\|\|", re.DOTALL)
+
+
+def is_spoiler_embed(embed, content):
+    """Whether embed's link sits inside a ||spoiler|| span of the message text."""
+    url = embed.url or embed.image.url or embed.thumbnail.url
+    return bool(url) and any(url in span for span in SPOILER_SPAN.findall(content))
+
+
+async def invert_image(image, message, reactor, spoiler):
     if image.mode == "RGBA":
         r, g, b, a = image.split()
         image = Image.merge("RGB", (r, g, b))
@@ -25,13 +35,13 @@ async def invert_image(image, message, reactor):
         try:
             new_message = await message.reply(
                 reactor.mention,
-                file=discord.File(f"inverted_image_{message_id}.png"),
+                file=discord.File(f"inverted_image_{message_id}.png", spoiler=spoiler),
                 allowed_mentions=discord.AllowedMentions(users=False),
             )
         except discord.HTTPException:
             new_message = await message.channel.send(
                 f"{message.author.mention} {reactor.mention}",
-                file=discord.File(f"inverted_image_{message_id}.png"),
+                file=discord.File(f"inverted_image_{message_id}.png", spoiler=spoiler),
                 allowed_mentions=discord.AllowedMentions(users=False),
             )
         await new_message.add_reaction("🗑️")
@@ -39,7 +49,7 @@ async def invert_image(image, message, reactor):
         os.remove(f"inverted_image_{message_id}.png")
 
 
-async def caption_image(image, message, reactor):
+async def caption_image(image, message, reactor, spoiler):
     if models.moondream_model is None:
         await reply_deletable(
             message,
@@ -54,8 +64,11 @@ async def caption_image(image, message, reactor):
     caption = models.moondream_model.caption(image, length="normal")
     end_time = time.time()  # Stop measuring time
     elapsed_time = end_time - start_time
+    text = caption["caption"]
+    if spoiler:
+        text = f"||{text}||"
     new_message = await message.reply(
-        f"{reactor.mention} {caption['caption']}",
+        f"{reactor.mention} {text}",
         allowed_mentions=discord.AllowedMentions(users=False),
     )
     await new_message.add_reaction("🗑️")
@@ -85,7 +98,9 @@ async def process_images(message, user, emoji_name):
             response = requests.get(link, timeout=30)
             response.raise_for_status()
             with Image.open(BytesIO(response.content)) as image:
-                await process_image(image, message, user)
+                await process_image(
+                    image, message, user, is_spoiler_embed(embed, message.content)
+                )
         except Exception:
             await report_error(action, message, user)
 
@@ -99,7 +114,7 @@ async def process_images(message, user, emoji_name):
             await attachment.save(attachment.filename)
             # Read the image
             with Image.open(attachment.filename) as image:
-                await process_image(image, message, user)
+                await process_image(image, message, user, attachment.is_spoiler())
         except Exception:
             await report_error(action, message, user)
         finally:
