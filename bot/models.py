@@ -1,5 +1,6 @@
 import gc
 import logging
+import os
 
 from bot.config import MOONDREAM_FLAG
 
@@ -31,16 +32,19 @@ def load(model_size, use_moondream):
 
 def load_moondream():
     global moondream_model
+    import torch
     from transformers import AutoModelForCausalLM
 
+    device = os.getenv("MOONDREAM_DEVICE") or (
+        "cuda" if torch.cuda.is_available() else "cpu"
+    )
     moondream_model = AutoModelForCausalLM.from_pretrained(
         "vikhyatk/moondream2",
         revision="2025-06-21",
         trust_remote_code=True,
-        # Comment/uncomment to control use of GPU for Moondream
-        device_map={"": "cuda"},
+        device_map={"": device},
     )
-    log.info("Loaded Moondream")
+    log.info("Loaded Moondream (%s)", device)
 
 
 def unload_moondream():
