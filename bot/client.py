@@ -1,7 +1,9 @@
 import logging
 
 import discord
+from discord import app_commands
 
+from bot import admin
 from bot.audio import send_mp3
 from bot.config import TRIGGER_EMOJI
 from bot.images import process_images
@@ -12,6 +14,11 @@ log = logging.getLogger(__name__)
 
 
 class BotClient(discord.Client):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.tree = app_commands.CommandTree(self)
+        self.tree.add_command(admin.moondream)
+
     async def on_ready(self):
         log.info("Logged on as %s", self.user)
 

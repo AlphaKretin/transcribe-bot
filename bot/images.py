@@ -9,7 +9,7 @@ import requests
 from PIL import Image, ImageOps
 
 from bot import models
-from bot.config import DISCORD_CHAR_LIMIT, MOONDREAM_FLAG
+from bot.config import DISCORD_CHAR_LIMIT
 from bot.replies import reply_deletable, report_error
 
 log = logging.getLogger(__name__)
@@ -36,9 +36,9 @@ def invert_image(image):
     return buffer.getvalue()
 
 
-def caption_image(image):
+def caption_image(model, image):
     start_time = time.time()
-    caption = models.moondream_model.caption(image, length="normal")
+    caption = model.caption(image, length="normal")
     log.info("Captioning time: %.2fs", time.time() - start_time)
     return caption["caption"]
 
@@ -154,21 +154,30 @@ async def process_images(message, user, emoji_name):
     if not sources:
         return
 
-    if not invert and models.moondream_model is None:
-        await reply_deletable(
-            message,
-            user,
-            "Sorry, image descriptions are not available right now. "
-            "The Moondream model was not loaded when the bot started. "
-            f"Please ask the bot administrator to restart with the `{MOONDREAM_FLAG}` flag to enable this feature.",
-        )
+    # Taken once, so turning Moondream off partway through doesn't break this request
+    model = models.moondream_model
+    if not invert and model is None:
+        if models.moondream_loading:
+            text = (
+                "Image descriptions are being turned on right now. "
+                "Please try again in a minute."
+            )
+        else:
+            text = (
+                "Sorry, image descriptions are not available right now. "
+                "Please ask the bot owner to turn them on with `/moondream`."
+            )
+        await reply_deletable(message, user, text)
         return
 
     results = []
     for number, (read, spoiler) in enumerate(sources, 1):
         try:
             with Image.open(BytesIO(await read())) as image:
-                output = invert_image(image) if invert else caption_image(image)
+                if invert:
+                    output = invert_image(image)
+                else:
+                    output = caption_image(model, image)
             results.append((number, output, spoiler))
         except Exception:
             await report_error(action, message, user)
