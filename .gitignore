@@ -10,6 +10,9 @@ bot_params.env
 *.ogg
 *.mp3
 
+# Bot logs
+logs/
+
 # Virtual Env
 necho/
 
