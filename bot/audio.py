@@ -29,19 +29,21 @@ async def send_mp3(message, replied_message, user):
     """Post the voice message that `message` transcribes, converted to MP3."""
     # Get the first attachment
     attachment = replied_message.attachments[0]
-    filenameMP3 = attachment.filename.replace(".ogg", ".mp3")
+    uploadMP3 = attachment.filename.replace(".ogg", ".mp3")
+    filenameOGG = os.path.join(PROJECT_DIR, f"{replied_message.id}-{attachment.filename}")
+    filenameMP3 = filenameOGG.replace(".ogg", ".mp3")
     try:
         # Save the file
-        await attachment.save(attachment.filename)
+        await attachment.save(filenameOGG)
         # Added feature by Kvysteran: convert the .ogg file to .mp3 before making the file available for download.
         # This makes playback of saved voice recordings easier for people that use Apple devices.
-        ogg_to_mp3(attachment.filename, filenameMP3)
+        ogg_to_mp3(filenameOGG, filenameMP3)
         # Send the file
-        await message.channel.send(file=discord.File(filenameMP3))
+        await message.channel.send(file=discord.File(filenameMP3, filename=uploadMP3))
     except Exception:
         await report_error("convert this voice message", message, user)
     finally:
         # Delete the files
-        for file_name in (attachment.filename, filenameMP3):
+        for file_name in (filenameOGG, filenameMP3):
             if os.path.exists(file_name):
                 os.remove(file_name)

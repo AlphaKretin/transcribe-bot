@@ -30,11 +30,8 @@ async def transcribe_voice_messages(message):
             end_time = time.time()  # Stop measuring time
             elapsed_time = end_time - start_time
 
-            # get the user's nickname
             if message.guild:
-                server_nickname = message.guild.get_member(
-                    message.author.id
-                ).display_name
+                server_nickname = message.author.display_name
                 prefix = f"**{server_nickname}**: "
                 fallback_prefix = f"**{server_nickname}** ({message.author.mention}): "
             else:
