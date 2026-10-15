@@ -42,10 +42,18 @@ class BotClient(discord.Client):
     # Before this change, every time the bot started or restarted, it would lose the ability to respond to
     # any reactions added to messages that were posted before the latest restart.
     async def on_raw_reaction_add(self, payload):
-        message = await self.get_channel(payload.channel_id).fetch_message(
-            payload.message_id
+        channel = self.get_channel(payload.channel_id) or await self.fetch_channel(
+            payload.channel_id
         )
-        user = payload.member
+        if not isinstance(channel, discord.abc.Messageable):
+            return
+        message = await channel.fetch_message(payload.message_id)
+        # payload.member is only set in servers
+        user = (
+            payload.member
+            or self.get_user(payload.user_id)
+            or await self.fetch_user(payload.user_id)
+        )
         emoji_name = str(payload.emoji)
 
         if any(name in emoji_name for name in TRIGGER_EMOJI):
@@ -60,7 +68,7 @@ class BotClient(discord.Client):
             return
 
         # Check if the message is a reply
-        if message.reference:
+        if message.reference and message.reference.message_id:
             # Get the message the bot is replying to
             replied_message = await message.channel.fetch_message(
                 message.reference.message_id
