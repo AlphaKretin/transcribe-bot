@@ -3,7 +3,6 @@ import os
 import time
 
 import discord
-import whisper
 
 from bot import models
 from bot.config import DISCORD_CHAR_LIMIT
@@ -25,8 +24,8 @@ async def transcribe_voice_messages(message):
 
             start_time = time.time()  # Start measuring time
 
-            text = whisper.transcribe(models.whisper_model, file_name)
-            transcribed_text = text["text"].strip()
+            segments, _ = models.whisper_model.transcribe(file_name)
+            transcribed_text = "".join(segment.text for segment in segments).strip()
 
             end_time = time.time()  # Stop measuring time
             elapsed_time = end_time - start_time

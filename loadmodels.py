@@ -1,4 +1,5 @@
-import whisper
-whisper.load_model("tiny")
-whisper.load_model("base")
-whisper.load_model("small")
+from faster_whisper import download_model
+
+download_model("tiny")
+download_model("base")
+download_model("small")

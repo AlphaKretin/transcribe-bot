@@ -1,8 +1,6 @@
 import gc
 import logging
 
-import whisper
-
 from bot.config import MOONDREAM_FLAG
 
 log = logging.getLogger(__name__)
@@ -14,9 +12,14 @@ moondream_loading = False
 
 def load(model_size, use_moondream):
     global whisper_model
+    # torch must be imported first: it puts its bundled CUDA libraries (cuBLAS, cuDNN)
+    # where CTranslate2 can find them
+    import torch
+    from faster_whisper import WhisperModel
 
-    whisper_model = whisper.load_model(model_size)
-    log.info("Loaded Whisper using model size: %s", model_size)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    whisper_model = WhisperModel(model_size, device=device)
+    log.info("Loaded Whisper using model size: %s (%s)", model_size, device)
 
     if use_moondream:
         load_moondream()
