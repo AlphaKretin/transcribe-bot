@@ -1,7 +1,7 @@
 import logging
-import os
 import re
 import time
+from functools import partial
 from io import BytesIO
 
 import discord
@@ -9,11 +9,13 @@ import requests
 from PIL import Image, ImageOps
 
 from bot import models
-from bot.config import MOONDREAM_FLAG
+from bot.config import DISCORD_CHAR_LIMIT, MOONDREAM_FLAG
 from bot.replies import reply_deletable, report_error
 
 log = logging.getLogger(__name__)
 
+# Discord's limit on attachments per message
+MAX_FILES = 10
 
 SPOILER_SPAN = re.compile(r"\|\|(.+?)\|\|", re.DOTALL)
 
@@ -24,65 +26,117 @@ def is_spoiler_embed(embed, content):
     return bool(url) and any(url in span for span in SPOILER_SPAN.findall(content))
 
 
-async def invert_image(image, message, reactor, spoiler):
+def invert_image(image):
+    """Return image inverted, as PNG bytes."""
     if image.mode == "RGBA":
         r, g, b, a = image.split()
         image = Image.merge("RGB", (r, g, b))
-    inverted_image = ImageOps.invert(image)
-    message_id = message.id
-    inverted_image.save(f"inverted_image_{message_id}.png")
-    try:
-        try:
-            new_message = await message.reply(
-                reactor.mention,
-                file=discord.File(f"inverted_image_{message_id}.png", spoiler=spoiler),
-                allowed_mentions=discord.AllowedMentions(users=False),
-            )
-        except discord.HTTPException:
-            new_message = await message.channel.send(
-                f"{message.author.mention} {reactor.mention}",
-                file=discord.File(f"inverted_image_{message_id}.png", spoiler=spoiler),
-                allowed_mentions=discord.AllowedMentions(users=False),
-            )
-        await new_message.add_reaction("🗑️")
-    finally:
-        os.remove(f"inverted_image_{message_id}.png")
+    buffer = BytesIO()
+    ImageOps.invert(image).save(buffer, "PNG")
+    return buffer.getvalue()
 
 
-async def caption_image(image, message, reactor, spoiler):
-    if models.moondream_model is None:
-        await reply_deletable(
-            message,
-            reactor,
-            "Sorry, image descriptions are not available right now. "
-            "The Moondream model was not loaded when the bot started. "
-            f"Please ask the bot administrator to restart with the `{MOONDREAM_FLAG}` flag to enable this feature.",
-        )
-        return
-
-    start_time = time.time()  # Start measuring time
+def caption_image(image):
+    start_time = time.time()
     caption = models.moondream_model.caption(image, length="normal")
-    end_time = time.time()  # Stop measuring time
-    elapsed_time = end_time - start_time
-    text = caption["caption"]
-    if spoiler:
-        text = f"||{text}||"
-    new_message = await message.reply(
-        f"{reactor.mention} {text}",
-        allowed_mentions=discord.AllowedMentions(users=False),
-    )
+    log.info("Captioning time: %.2fs", time.time() - start_time)
+    return caption["caption"]
+
+
+async def download(link):
+    response = requests.get(link, timeout=30)
+    response.raise_for_status()
+    return response.content
+
+
+async def post_output(message, reactor, anchor, text="", images=()):
+    """Post text and (number, png, spoiler) images after a silent mention of reactor.
+
+    The first post (anchor is None) replies to message and gets a 🗑️. Later posts reply
+    to anchor, so that 🗑️ on it also removes them.
+    """
+    content = f"{reactor.mention} {text}".rstrip()
+    mentions = discord.AllowedMentions(users=False)
+
+    def send_kwargs():
+        # a failed send closes its files, so each attempt needs new ones
+        if not images:
+            return {"allowed_mentions": mentions}
+        files = [
+            discord.File(BytesIO(png), f"inverted_image_{number}.png", spoiler=spoiler)
+            for number, png, spoiler in images
+        ]
+        return {"files": files, "allowed_mentions": mentions}
+
+    if anchor is not None:
+        return await message.channel.send(content, reference=anchor, **send_kwargs())
+    try:
+        new_message = await message.reply(content, **send_kwargs())
+    except discord.HTTPException as e:
+        if e.status == 413:
+            raise
+        # Original message was deleted, send without reply
+        if reactor != message.author:
+            content = f"{message.author.mention} {content}"
+        new_message = await message.channel.send(content, **send_kwargs())
     await new_message.add_reaction("🗑️")
-    log.info("Captioning time: %.2fs", elapsed_time)
+    return new_message
+
+
+async def post_images(message, reactor, results):
+    anchor = None
+
+    async def post(group):
+        nonlocal anchor
+        try:
+            posted = await post_output(message, reactor, anchor, images=group)
+        except discord.HTTPException as e:
+            # Upload too large: retry as two smaller posts
+            if e.status != 413 or len(group) == 1:
+                raise
+            half = len(group) // 2
+            await post(group[:half])
+            await post(group[half:])
+            return
+        anchor = anchor or posted
+
+    for start in range(0, len(results), MAX_FILES):
+        await post(results[start : start + MAX_FILES])
+
+
+async def post_captions(message, reactor, results, numbered):
+    lines = []
+    for number, caption, spoiler in results:
+        if spoiler:
+            caption = f"||{caption}||"
+        lines.append(f"{number}. {caption}" if numbered else caption)
+
+    # room for both mentions, in case the fallback has to add the author's
+    limit = DISCORD_CHAR_LIMIT - len(reactor.mention) - len(message.author.mention) - 2
+    chunks = [lines[0]]
+    for line in lines[1:]:
+        if len(chunks[-1]) + 1 + len(line) > limit:
+            chunks.append(line)
+        else:
+            chunks[-1] += "\n" + line
+
+    anchor = None
+    for chunk in chunks:
+        posted = await post_output(message, reactor, anchor, text=chunk)
+        anchor = anchor or posted
 
 
 async def process_images(message, user, emoji_name):
-    """Invert or describe every image in message's embeds and attachments."""
-    if "invert_image" in emoji_name:
-        process_image, action = invert_image, "invert this image"
-    else:
-        process_image, action = caption_image, "describe this image"
+    """Invert or describe every image in message's attachments and embeds, in one reply."""
+    invert = "invert_image" in emoji_name
+    action = "invert this image" if invert else "describe this image"
 
-    # Added feature by Kvysteran: Loop through the embeds and try to download the images.
+    # Each source is (read, spoiler), with read returning the image's bytes
+    sources = []
+    for attachment in message.attachments:
+        if (attachment.content_type or "").startswith("image"):
+            sources.append((attachment.read, attachment.is_spoiler()))
+    # Added feature by Kvysteran: download images from embeds.
     # Before this change, posts would sometimes appear to contain an image but were unable to be
     # processed because the image was a displayed embed from a pasted link and not an attachment.
     for embed in message.embeds:
@@ -94,30 +148,37 @@ async def process_images(message, user, emoji_name):
                 "Uh-oh, it looks like this message has an embedded link but no actual attached images.",
             )
             continue
-        try:
-            response = requests.get(link, timeout=30)
-            response.raise_for_status()
-            with Image.open(BytesIO(response.content)) as image:
-                await process_image(
-                    image, message, user, is_spoiler_embed(embed, message.content)
-                )
-        except Exception:
-            await report_error(action, message, user)
+        sources.append(
+            (partial(download, link), is_spoiler_embed(embed, message.content))
+        )
+    if not sources:
+        return
 
-    # Loop through the attachments
-    for attachment in message.attachments:
-        # Check if the attachment is an image
-        if not (attachment.content_type or "").startswith("image"):
-            continue
+    if not invert and models.moondream_model is None:
+        await reply_deletable(
+            message,
+            user,
+            "Sorry, image descriptions are not available right now. "
+            "The Moondream model was not loaded when the bot started. "
+            f"Please ask the bot administrator to restart with the `{MOONDREAM_FLAG}` flag to enable this feature.",
+        )
+        return
+
+    results = []
+    for number, (read, spoiler) in enumerate(sources, 1):
         try:
-            # Download the image
-            await attachment.save(attachment.filename)
-            # Read the image
-            with Image.open(attachment.filename) as image:
-                await process_image(image, message, user, attachment.is_spoiler())
+            with Image.open(BytesIO(await read())) as image:
+                output = invert_image(image) if invert else caption_image(image)
+            results.append((number, output, spoiler))
         except Exception:
             await report_error(action, message, user)
-        finally:
-            # Delete the images
-            if os.path.exists(attachment.filename):
-                os.remove(attachment.filename)
+    if not results:
+        return
+
+    try:
+        if invert:
+            await post_images(message, user, results)
+        else:
+            await post_captions(message, user, results, numbered=len(sources) > 1)
+    except Exception:
+        await report_error(action, message, user)
