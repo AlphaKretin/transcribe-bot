@@ -1,9 +1,27 @@
 import os
 
+import av
 import discord
-from pydub import AudioSegment
 
 from bot.replies import report_error
+
+
+def ogg_to_mp3(source, destination):
+    with av.open(source) as input_file, av.open(destination, "w") as output_file:
+        input_stream = input_file.streams.audio[0]
+        output_stream = output_file.add_stream("libmp3lame", rate=input_stream.rate)
+        output_stream.layout = input_stream.layout
+        resampler = av.AudioResampler(
+            format=output_stream.format,
+            layout=output_stream.layout,
+            rate=output_stream.rate,
+        )
+        for frame in input_file.decode(input_stream):
+            for resampled in resampler.resample(frame):
+                output_file.mux(output_stream.encode(resampled))
+        for resampled in resampler.resample(None):
+            output_file.mux(output_stream.encode(resampled))
+        output_file.mux(output_stream.encode(None))
 
 
 async def send_mp3(message, replied_message, user):
@@ -14,12 +32,9 @@ async def send_mp3(message, replied_message, user):
     try:
         # Save the file
         await attachment.save(attachment.filename)
-        audioMP3 = AudioSegment.from_ogg(attachment.filename)
         # Added feature by Kvysteran: convert the .ogg file to .mp3 before making the file available for download.
         # This makes playback of saved voice recordings easier for people that use Apple devices.
-        # REQUIRED: the ffprobe executable must be placed in the same file location that this python program is running from.
-        # If you have ffmpeg.exe but not ffprobe.exe, this conversion will fail and cause a crash.  :(
-        audioMP3.export(filenameMP3, format="mp3")
+        ogg_to_mp3(attachment.filename, filenameMP3)
         # Send the file
         await message.channel.send(file=discord.File(filenameMP3))
     except Exception:
