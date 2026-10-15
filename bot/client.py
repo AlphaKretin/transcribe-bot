@@ -104,5 +104,7 @@ def run(token):
     # guilds is required to get the nickname of the user
     intents.members = True
 
+    # The bot never joins voice channels, so PyNaCl isn't needed; skip its startup warning.
+    discord.VoiceClient.warn_nacl = False
     client = BotClient(intents=intents)
     client.run(token, log_handler=None)

@@ -13,9 +13,6 @@ bot_params.env
 # Bot logs
 logs/
 
-# Virtual Env
-necho/
-
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
