@@ -21,12 +21,11 @@ Updates to image inversion by Kvysteran.
 
 ## Setup
 
-1. Install [LibVips](https://www.libvips.org/)
-2. Clone the repository
-3. Create a virtual environment `python -m venv .venv`
-4. Install the requirements `pip install -r requirements.txt`
-5. To run the models on an NVIDIA GPU, also install
+1. Clone the repository
+2. Create a virtual environment `python -m venv .venv`
+3. Install the requirements `pip install -r requirements.txt`
+4. To run the models on an NVIDIA GPU, also install
    `pip install -r requirements-gpu.txt`
-6. Add your bot token to a `bot_params.env` file
-7. Run the bot `python transcribebot.py`
-8. Invite the bot to your server
+5. Add your bot token to a `bot_params.env` file
+6. Run the bot `python transcribebot.py`
+7. Invite the bot to your server
