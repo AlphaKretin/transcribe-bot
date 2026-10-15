@@ -19,8 +19,9 @@ COPY loadmodels.py /app/loadmodels.py
 
 RUN python3 /app/loadmodels.py
 
-# Copy transcribebot.py
+# Copy the bot
 COPY transcribebot.py /app/transcribebot.py
+COPY bot /app/bot
 
 
 # Run transcribebot.py
