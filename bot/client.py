@@ -118,9 +118,12 @@ class BotClient(discord.Client):
         Permitted if user wrote the message the bot replied to, or is mentioned in it
         (the fallback for when the original was deleted).
         """
+        # Silent mentions are left out of message.mentions, which only lists users
+        # who were pinged (such as a reply's author), so check the text as well.
         if not (
             (replied_message and replied_message.author == user)
             or user in message.mentions
+            or user.id in message.raw_mentions
         ):
             return
 
